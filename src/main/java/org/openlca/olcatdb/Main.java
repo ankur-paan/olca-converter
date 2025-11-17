@@ -67,7 +67,8 @@ public class Main {
 		System.out.println("-c -from <path> -to <path> -format <format> "
 				+ ": converts an XML or ZIP file from the given "
 				+ "path to the give directory using one of the "
-				+ "allowed formats: EcoSpold1, EcoSpold2, ILCD");
+				+ "allowed formats: EcoSpold1, EcoSpold2, ILCD, ILCD (ZIP for openLCA)");
+		System.out.println("Note: Use the GUI for most conversions (run without arguments)");
 	}
 
 }
