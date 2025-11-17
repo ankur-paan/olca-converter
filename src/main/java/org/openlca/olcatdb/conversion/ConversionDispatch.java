@@ -75,6 +75,8 @@ public class ConversionDispatch {
 				conversion = new ES2ToES1Conversion(true);
 			else if (targetFormat == XMLProcessFormat.ILCD)
 				conversion = new ES2ToILCDConversion();
+			else if (targetFormat == XMLProcessFormat.ILCD_ZIP)
+				conversion = new ES2ToOpenLCAConversion();
 			else if (targetFormat == XMLProcessFormat.CSV)
 				conversion = new ES2ToCSVSetUpConversion(splitCSV, lang,
 						masterData);

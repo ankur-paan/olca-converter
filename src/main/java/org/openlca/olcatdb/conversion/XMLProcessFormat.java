@@ -47,6 +47,14 @@ public enum XMLProcessFormat {
 	 * ILCD("http://lca.jrc.it/ILCD/Process:processDataSet").
 	 */
 	ILCD("ILCD", "processDataSet", "http://lca.jrc.it/ILCD/Process"),
+	
+	/**
+	 * ILCD format packaged as ZIP for openLCA import.
+	 * This creates ILCD format and packages it as a ZIP file that can be
+	 * directly imported into openLCA.
+	 */
+	ILCD_ZIP("ILCD (ZIP for openLCA)", "processDataSet", "http://lca.jrc.it/ILCD/Process"),
+	
 	/**
 	 * The CSV process format
 	 */
