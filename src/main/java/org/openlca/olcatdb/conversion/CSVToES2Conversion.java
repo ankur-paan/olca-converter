@@ -38,8 +38,9 @@ import com.greendeltatc.simapro.csv.model.types.ProcessCategory;
 import com.greendeltatc.simapro.csv.model.types.Status;
 import com.greendeltatc.simapro.csv.model.types.Substitution;
 import com.greendeltatc.simapro.csv.model.types.WasteTreatmentAllocation;
-import org.openlca.expressions.FormulaInterpreter;
-import org.openlca.expressions.InterpreterException;
+// Commented out - olca-formula dependency not available
+// import org.openlca.expressions.FormulaInterpreter;
+// import org.openlca.expressions.InterpreterException;
 import org.openlca.olcatdb.ResourceFolder;
 import org.openlca.olcatdb.datatypes.DataSetReference;
 import org.openlca.olcatdb.datatypes.LangString;
@@ -575,6 +576,9 @@ public class CSVToES2Conversion extends AbstractConversionImpl {
 		es2Parameter.mathematicalRelation = expression;
 
 		// convert formula
+		// NOTE: Formula evaluation disabled due to missing olca-formula dependency
+		// This affects CSV to ES2 conversion only
+		/* 
 		try {
 			FormulaInterpreter interpreter = new FormulaInterpreter();
 			for (String name : index.keySet()) {
@@ -599,6 +603,9 @@ public class CSVToES2Conversion extends AbstractConversionImpl {
 		} catch (InterpreterException e) {
 			e.printStackTrace();
 		}
+		*/
+		// Fallback: set amount to 0 when formula evaluation is not available
+		es2Parameter.amount = 0.0;
 	}
 
 	private void productFlow(SPProductFlow productFlow, ES2Dataset dataset) {
