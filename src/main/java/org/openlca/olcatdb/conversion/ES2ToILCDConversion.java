@@ -4,6 +4,7 @@ import java.io.File;
 import java.io.InputStream;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -24,8 +25,15 @@ import org.openlca.olcatdb.ecospold2.ES2EcoSpold;
 import org.openlca.olcatdb.ecospold2.ES2ElementaryExchange;
 import org.openlca.olcatdb.ecospold2.ES2GeographyRef;
 import org.openlca.olcatdb.ecospold2.ES2IntermediateExchange;
+import org.openlca.olcatdb.ecospold2.ES2LogNormalDistribution;
+import org.openlca.olcatdb.ecospold2.ES2NormalDistribution;
+import org.openlca.olcatdb.ecospold2.ES2Property;
 import org.openlca.olcatdb.ecospold2.ES2Review;
 import org.openlca.olcatdb.ecospold2.ES2TimePeriod;
+import org.openlca.olcatdb.ecospold2.ES2TransferCoefficient;
+import org.openlca.olcatdb.ecospold2.ES2TriangularDistribution;
+import org.openlca.olcatdb.ecospold2.ES2Uncertainty;
+import org.openlca.olcatdb.ecospold2.ES2UniformDistribution;
 import org.openlca.olcatdb.ilcd.ILCDClass;
 import org.openlca.olcatdb.ilcd.ILCDClassification;
 import org.openlca.olcatdb.ilcd.ILCDContact;
@@ -216,6 +224,23 @@ public class ES2ToILCDConversion extends AbstractConversionImpl {
 					&& eDescription.generalComment.hasText()) {
 				iDescription.getComment().add(
 						eDescription.generalComment.getFirstLangString());
+			}
+
+			// allocation comment
+			if (eDescription.allocationComment != null
+					&& eDescription.allocationComment.hasText()) {
+				LangString allocComment = eDescription.allocationComment.getFirstLangString();
+				if (allocComment != null && allocComment.getValue() != null) {
+					// Append allocation comment to general comment
+					if (!iDescription.getComment().isEmpty()) {
+						LangString existingComment = iDescription.getComment().get(0);
+						existingComment.setValue(existingComment.getValue() + 
+								" [Allocation: " + allocComment.getValue() + "]");
+					} else {
+						iDescription.getComment().add(
+								new LangString("[Allocation: " + allocComment.getValue() + "]"));
+					}
+				}
 			}
 
 		}
@@ -556,6 +581,14 @@ public class ES2ToILCDConversion extends AbstractConversionImpl {
 			iExchange.direction = eExchange.outputGroup != null ? "Output"
 					: "Input";
 
+			// Map properties and transfer coefficients as comments
+			mapPropertiesAndTransferCoefficients(eExchange.getProperties(), 
+					eExchange.getTransferCoefficients(), iExchange);
+			
+			// Map source references
+			mapExchangeSource(eExchange.sourceId, eExchange.sourceYear, 
+					eExchange.sourceFirstAuthor, iExchange);
+
 			// make flow (reference) and numeric values
 			double factor = flowDispatch(eExchange, iExchange);
 			numericValues(eExchange, iExchange, factor);
@@ -593,6 +626,14 @@ public class ES2ToILCDConversion extends AbstractConversionImpl {
 			}
 			iExchange.direction = eExchange.outputGroup != null ? "Output"
 					: "Input";
+
+			// Map properties and transfer coefficients as comments
+			mapPropertiesAndTransferCoefficients(eExchange.getProperties(), 
+					eExchange.getTransferCoefficients(), iExchange);
+			
+			// Map source references
+			mapExchangeSource(eExchange.sourceId, eExchange.sourceYear, 
+					eExchange.sourceFirstAuthor, iExchange);
 
 			// make flow (reference) and numeric values
 			double factor = flowDispatch(eExchange, iExchange);
@@ -827,16 +868,21 @@ public class ES2ToILCDConversion extends AbstractConversionImpl {
 		}
 
 		double amount = 0;
+		ES2Uncertainty uncertainty = null;
+		
 		if (eExchange instanceof ES2IntermediateExchange) {
 			amount = ((ES2IntermediateExchange) eExchange).amount;
+			uncertainty = ((ES2IntermediateExchange) eExchange).uncertainty;
 		} else if (eExchange instanceof ES2ElementaryExchange) {
 			amount = ((ES2ElementaryExchange) eExchange).amount;
+			uncertainty = ((ES2ElementaryExchange) eExchange).uncertainty;
 		}
 
 		iExchange.resultingAmount = amount * factor;
 		iExchange.meanAmount = amount * factor;
 
-		// TODO: uncertainty...
+		// Map uncertainty information
+		mapUncertainty(uncertainty, iExchange, factor);
 
 	}
 
@@ -970,5 +1016,160 @@ public class ES2ToILCDConversion extends AbstractConversionImpl {
 		}
 
 		return ref;
+	}
+
+	/**
+	 * Maps exchange properties and transfer coefficients to ILCD exchange comments.
+	 * Since ILCD doesn't have direct support for these ES2 features, they are
+	 * documented as supplementary information in the comment field.
+	 */
+	private void mapPropertiesAndTransferCoefficients(List<ES2Property> properties,
+			List<ES2TransferCoefficient> transferCoefficients, ILCDExchange iExchange) {
+		
+		StringBuilder additionalInfo = new StringBuilder();
+		
+		// Map properties
+		if (properties != null && !properties.isEmpty()) {
+			additionalInfo.append(" [Properties: ");
+			boolean first = true;
+			for (ES2Property property : properties) {
+				if (!first) {
+					additionalInfo.append("; ");
+				}
+				first = false;
+				
+				String propName = LangString.getFirstValue(property.getName());
+				if (propName != null) {
+					additionalInfo.append(propName).append("=").append(property.amount);
+					String unitName = LangString.getFirstValue(property.getUnitName());
+					if (unitName != null) {
+						additionalInfo.append(" ").append(unitName);
+					}
+				}
+			}
+			additionalInfo.append("]");
+		}
+		
+		// Map transfer coefficients
+		if (transferCoefficients != null && !transferCoefficients.isEmpty()) {
+			additionalInfo.append(" [Transfer coefficients: ");
+			boolean first = true;
+			for (ES2TransferCoefficient tc : transferCoefficients) {
+				if (!first) {
+					additionalInfo.append("; ");
+				}
+				first = false;
+				
+				additionalInfo.append("exchangeId=").append(tc.exchangeId)
+						.append(", amount=").append(tc.amount);
+			}
+			additionalInfo.append("]");
+		}
+		
+		// Append to existing comment if we have additional info
+		if (additionalInfo.length() > 0) {
+			if (!iExchange.getComment().isEmpty()) {
+				LangString existingComment = iExchange.getComment().get(0);
+				existingComment.setValue(existingComment.getValue() + additionalInfo.toString());
+			} else {
+				iExchange.getComment().add(new LangString(additionalInfo.toString().trim()));
+			}
+		}
+	}
+
+	/**
+	 * Maps source reference information from an ES2 exchange to ILCD format.
+	 */
+	private void mapExchangeSource(String sourceId, String sourceYear, 
+			String sourceFirstAuthor, ILCDExchange iExchange) {
+		
+		if (sourceId != null && sourceFirstAuthor != null) {
+			// Create source reference
+			DataSetReference sourceRef = source(sourceId, sourceFirstAuthor, sourceYear);
+			if (sourceRef != null) {
+				iExchange.getDataSources().add(sourceRef);
+			}
+		}
+	}
+
+	/**
+	 * Maps uncertainty information from EcoSpold 2 to ILCD format.
+	 * Handles different uncertainty distribution types and converts them to ILCD equivalents.
+	 */
+	private void mapUncertainty(ES2Uncertainty uncertainty, ILCDExchange iExchange, double factor) {
+		if (uncertainty == null) {
+			return;
+		}
+
+		// Log-normal distribution
+		if (uncertainty.logNormalDistribution != null) {
+			ES2LogNormalDistribution logNormal = uncertainty.logNormalDistribution;
+			iExchange.uncertaintyDistribution = "log-normal";
+			
+			// For log-normal, ILCD uses relativeStandardDeviation95In
+			// which is the square of the geometric standard deviation (SDg^2)
+			if (logNormal.variance != null) {
+				// variance is ln(SDg^2)^2, so we need to convert
+				iExchange.relStdDeviation95In = Math.exp(Math.sqrt(logNormal.variance));
+			} else if (logNormal.standardDeviation95 != null) {
+				iExchange.relStdDeviation95In = logNormal.standardDeviation95;
+			}
+		}
+		// Normal distribution
+		else if (uncertainty.normalDistribution != null) {
+			ES2NormalDistribution normal = uncertainty.normalDistribution;
+			iExchange.uncertaintyDistribution = "normal";
+			
+			// For normal distribution, ILCD expects 2*SD as relative standard deviation
+			if (normal.variance != null) {
+				iExchange.relStdDeviation95In = 2.0 * Math.sqrt(normal.variance);
+			} else if (normal.standardDeviation95 != null) {
+				iExchange.relStdDeviation95In = normal.standardDeviation95;
+			}
+		}
+		// Uniform distribution
+		else if (uncertainty.uniformDistribution != null) {
+			ES2UniformDistribution uniform = uncertainty.uniformDistribution;
+			iExchange.uncertaintyDistribution = "uniform";
+			
+			if (uniform.minValue != null) {
+				iExchange.minimumAmount = uniform.minValue * factor;
+			}
+			if (uniform.maxValue != null) {
+				iExchange.maximumAmount = uniform.maxValue * factor;
+			}
+		}
+		// Triangular distribution
+		else if (uncertainty.triangularDistribution != null) {
+			ES2TriangularDistribution triangular = uncertainty.triangularDistribution;
+			iExchange.uncertaintyDistribution = "triangular";
+			
+			if (triangular.minValue != null) {
+				iExchange.minimumAmount = triangular.minValue * factor;
+			}
+			if (triangular.maxValue != null) {
+				iExchange.maximumAmount = triangular.maxValue * factor;
+			}
+		}
+		// Undefined distribution
+		else if (uncertainty.undefinedDistribution != null) {
+			// For undefined distributions, just note it exists but don't set specific values
+			// as ILCD doesn't have a direct equivalent
+			iExchange.uncertaintyDistribution = "undefined";
+		}
+		
+		// Add uncertainty comment if available
+		if (uncertainty.getGeneralComment() != null && !uncertainty.getGeneralComment().isEmpty()) {
+			LangString comment = LangString.getFirst(uncertainty.getGeneralComment());
+			if (comment != null && comment.getValue() != null && !comment.getValue().isEmpty()) {
+				// Append to existing comment if present
+				if (!iExchange.getComment().isEmpty()) {
+					LangString existingComment = iExchange.getComment().get(0);
+					existingComment.setValue(existingComment.getValue() + " [Uncertainty: " + comment.getValue() + "]");
+				} else {
+					iExchange.getComment().add(new LangString("[Uncertainty: " + comment.getValue() + "]"));
+				}
+			}
+		}
 	}
 }
