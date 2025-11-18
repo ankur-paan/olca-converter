@@ -27,6 +27,7 @@ import org.openlca.olcatdb.ecospold2.ES2GeographyRef;
 import org.openlca.olcatdb.ecospold2.ES2IntermediateExchange;
 import org.openlca.olcatdb.ecospold2.ES2LogNormalDistribution;
 import org.openlca.olcatdb.ecospold2.ES2NormalDistribution;
+import org.openlca.olcatdb.ecospold2.ES2Parameter;
 import org.openlca.olcatdb.ecospold2.ES2Property;
 import org.openlca.olcatdb.ecospold2.ES2Review;
 import org.openlca.olcatdb.ecospold2.ES2TimePeriod;
@@ -149,6 +150,7 @@ public class ES2ToILCDConversion extends AbstractConversionImpl {
 		geography(dataset, iProcess);
 		technology(dataset, iProcess);
 		lciMethod(dataset, iProcess);
+		mapMathematicalRelations(dataset, iProcess);
 		representativeness(dataset, iProcess);
 		reviews(dataset, iProcess);
 		adminInfo(dataset, iProcess);
@@ -306,7 +308,17 @@ public class ES2ToILCDConversion extends AbstractConversionImpl {
 				iTime.getDescription().add(eTime.comment.getFirstLangString());
 			}
 
-			// TODO: isValidForEntirePeriod
+			// isValidForEntirePeriod
+			if (eTime.dataValidForEntirePeriod != null) {
+				String validForPeriodText = "[Data valid for entire period: " 
+						+ eTime.dataValidForEntirePeriod + "]";
+				if (!iTime.getDescription().isEmpty()) {
+					LangString existingDesc = iTime.getDescription().get(0);
+					existingDesc.setValue(existingDesc.getValue() + " " + validForPeriodText);
+				} else {
+					iTime.getDescription().add(new LangString(validForPeriodText));
+				}
+			}
 		}
 
 	}
@@ -370,7 +382,41 @@ public class ES2ToILCDConversion extends AbstractConversionImpl {
 		}
 	}
 
-	// TODO: mathematical relations
+	/**
+	 * Maps mathematical relations from EcoSpold 2 to ILCD format.
+	 * Parameters with formulas are documented in the modeling constants field.
+	 * Exchange formulas are appended to exchange comments.
+	 */
+	private void mapMathematicalRelations(ES2Dataset eDataset, ILCDProcess iProcess) {
+		
+		// Map parameters with mathematical relations to modeling constants
+		if (iProcess.method != null && eDataset.getParameters() != null) {
+			for (ES2Parameter param : eDataset.getParameters()) {
+				if (param.mathematicalRelation != null && !param.mathematicalRelation.isEmpty()) {
+					String paramName = LangString.getFirstValue(param.getName());
+					if (paramName == null || paramName.isEmpty()) {
+						paramName = param.variableName != null ? param.variableName : "unnamed";
+					}
+					
+					String formulaText = "[Parameter: " + paramName + " = " + param.mathematicalRelation + "]";
+					
+					// Append to existing modeling constants or create new entry
+					if (iProcess.method.getModellingConstants().isEmpty()) {
+						iProcess.method.getModellingConstants().add(new LangString(formulaText));
+					} else {
+						LangString existingConstants = iProcess.method.getModellingConstants().get(0);
+						String currentValue = existingConstants.getValue();
+						// Only append if not the default "See the methodology report." text
+						if (currentValue != null && currentValue.equals("See the methodology report.")) {
+							existingConstants.setValue(formulaText);
+						} else {
+							existingConstants.setValue(currentValue + " " + formulaText);
+						}
+					}
+				}
+			}
+		}
+	}
 
 	/**
 	 * Creates the LCI method element.
@@ -589,6 +635,10 @@ public class ES2ToILCDConversion extends AbstractConversionImpl {
 			mapExchangeSource(eExchange.sourceId, eExchange.sourceYear, 
 					eExchange.sourceFirstAuthor, iExchange);
 
+			// Map mathematical relation if present
+			mapExchangeMathematicalRelation(eExchange.mathematicalRelation, 
+					eExchange.isCalculatedAmount, iExchange);
+
 			// make flow (reference) and numeric values
 			double factor = flowDispatch(eExchange, iExchange);
 			numericValues(eExchange, iExchange, factor);
@@ -634,6 +684,10 @@ public class ES2ToILCDConversion extends AbstractConversionImpl {
 			// Map source references
 			mapExchangeSource(eExchange.sourceId, eExchange.sourceYear, 
 					eExchange.sourceFirstAuthor, iExchange);
+
+			// Map mathematical relation if present
+			mapExchangeMathematicalRelation(eExchange.mathematicalRelation, 
+					eExchange.isCalculatedAmount, iExchange);
 
 			// make flow (reference) and numeric values
 			double factor = flowDispatch(eExchange, iExchange);
@@ -1062,6 +1116,12 @@ public class ES2ToILCDConversion extends AbstractConversionImpl {
 				
 				additionalInfo.append("exchangeId=").append(tc.exchangeId)
 						.append(", amount=").append(tc.amount);
+				
+				// Include formula if present and it's a calculated amount
+				if (tc.mathematicalRelation != null && !tc.mathematicalRelation.isEmpty() 
+						&& tc.isCalculatedAmount) {
+					additionalInfo.append(", formula=").append(tc.mathematicalRelation);
+				}
 			}
 			additionalInfo.append("]");
 		}
@@ -1088,6 +1148,29 @@ public class ES2ToILCDConversion extends AbstractConversionImpl {
 			DataSetReference sourceRef = source(sourceId, sourceFirstAuthor, sourceYear);
 			if (sourceRef != null) {
 				iExchange.getDataSources().add(sourceRef);
+			}
+		}
+	}
+
+	/**
+	 * Maps mathematical relation (formula) from EcoSpold 2 exchange to ILCD exchange comment.
+	 * Formulas are preserved as descriptive text since ILCD doesn't support executable formulas.
+	 */
+	private void mapExchangeMathematicalRelation(String mathematicalRelation, 
+			Boolean isCalculatedAmount, ILCDExchange iExchange) {
+		
+		if (mathematicalRelation != null && !mathematicalRelation.isEmpty()) {
+			// Only append formula if it's a calculated amount
+			if (isCalculatedAmount != null && isCalculatedAmount) {
+				String formulaText = "[Formula: " + mathematicalRelation + "]";
+				
+				// Append to existing comment if present
+				if (!iExchange.getComment().isEmpty()) {
+					LangString existingComment = iExchange.getComment().get(0);
+					existingComment.setValue(existingComment.getValue() + " " + formulaText);
+				} else {
+					iExchange.getComment().add(new LangString(formulaText));
+				}
 			}
 		}
 	}
